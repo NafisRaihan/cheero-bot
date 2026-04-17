@@ -14,8 +14,8 @@ app = Flask(__name__)
 def run_report():
     """Trigger the Meta ads report and send to Telegram"""
     try:
-        main()
-        return jsonify({"status": "success", "message": "Report sent to Telegram"}), 200
+        response = main()
+        return jsonify({"status": "done", "telegram": response.text}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

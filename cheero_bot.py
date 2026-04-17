@@ -62,23 +62,28 @@ def send_telegram(msg):
         "text": msg
     }
 
-    print("Sending to chat_id:", TELEGRAM_CHAT_ID)
-    response = requests.post(
-        url,
-        json=payload,
-        timeout=20
-    )
+    chat_id = TELEGRAM_CHAT_ID
+    print("Sending to chat_id:", chat_id)
 
-    print("STATUS:", response.status_code)
-    print("RESPONSE:", response.text)
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=20
+        )
+        print("TELEGRAM RESPONSE:", response.status_code)
+        print("TELEGRAM BODY:", response.text)
+        return response
+    except Exception as e:
+        print("TELEGRAM ERROR:", str(e))
+        raise
 
 
 def main():
     data = fetch_meta_data()
 
     if not data:
-        send_telegram("No ads data found 😢")
-        return
+        return send_telegram("No ads data found 😢")
 
     message = "📊 Meta Ads Report (Last 7 Days)\n\n"
 
@@ -116,7 +121,7 @@ def main():
 
         message += "----------------------\n"
 
-    send_telegram(message)
+    return send_telegram(message)
 
 
 if __name__ == "__main__":
