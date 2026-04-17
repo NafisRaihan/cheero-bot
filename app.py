@@ -45,6 +45,7 @@ def env_check():
         "TELEGRAM_CHAT_ID": bool(os.environ.get("TELEGRAM_CHAT_ID")),
         "META_ACCESS_TOKEN": bool(os.environ.get("META_ACCESS_TOKEN")),
         "META_AD_ACCOUNT_ID": bool(os.environ.get("META_AD_ACCOUNT_ID")),
+        "TEST_MARKER": os.environ.get("TEST_MARKER"),
     }
 
 
