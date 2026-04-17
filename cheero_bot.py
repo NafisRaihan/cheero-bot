@@ -2,12 +2,19 @@ import os
 import requests
 from dotenv import load_dotenv
 
-load_dotenv()
+if os.path.exists(".env"):
+    load_dotenv()
 
-META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
-META_AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN")
+META_AD_ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+print("BOT TOKEN:", os.environ.get("TELEGRAM_BOT_TOKEN"))
+
+token = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not token:
+    raise ValueError("TELEGRAM_BOT_TOKEN is missing")
 
 
 INSTALL_ACTION_TYPES = ["mobile_app_install", "app_install", "omni_app_install"]
