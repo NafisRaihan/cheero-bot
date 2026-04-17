@@ -10,14 +10,15 @@ from cheero_bot import main
 app = Flask(__name__)
 
 
+def send_report_to_telegram():
+    main()
+
+
 @app.route("/run-report", methods=["GET"])
 def run_report():
-    """Trigger the Meta ads report and send to Telegram"""
-    try:
-        response = main()
-        return jsonify({"status": "done", "telegram": response.text}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    # call your existing report function here
+    send_report_to_telegram()
+    return {"message": "Report sent to Telegram", "status": "success"}
 
 
 @app.route("/health", methods=["GET"])
