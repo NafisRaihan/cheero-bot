@@ -37,6 +37,17 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/env-check", methods=["GET"])
+def env_check():
+    import os
+    return {
+        "TELEGRAM_BOT_TOKEN": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+        "TELEGRAM_CHAT_ID": bool(os.environ.get("TELEGRAM_CHAT_ID")),
+        "META_ACCESS_TOKEN": bool(os.environ.get("META_ACCESS_TOKEN")),
+        "META_AD_ACCOUNT_ID": bool(os.environ.get("META_AD_ACCOUNT_ID")),
+    }
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
