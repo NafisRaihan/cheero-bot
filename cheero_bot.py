@@ -73,6 +73,7 @@ def send_telegram(msg):
         )
         print("TELEGRAM RESPONSE:", response.status_code)
         print("TELEGRAM BODY:", response.text)
+        response.raise_for_status()
         return response
     except Exception as e:
         print("TELEGRAM ERROR:", str(e))

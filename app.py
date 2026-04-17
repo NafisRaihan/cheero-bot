@@ -11,14 +11,17 @@ app = Flask(__name__)
 
 
 def send_report_to_telegram():
-    main()
+    return main()
 
 
 @app.route("/run-report", methods=["GET"])
 def run_report():
     # call your existing report function here
-    send_report_to_telegram()
-    return {"message": "Report sent to Telegram", "status": "success"}
+    try:
+        response = send_report_to_telegram()
+        return response.json()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/health", methods=["GET"])
