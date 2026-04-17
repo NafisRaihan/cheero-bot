@@ -1,8 +1,5 @@
 import os
 from flask import Flask, jsonify
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Import the main function from cheero_bot
 from cheero_bot import main
@@ -18,8 +15,18 @@ def send_report_to_telegram():
 def run_report():
     # call your existing report function here
     try:
+        token = os.environ["TELEGRAM_BOT_TOKEN"]
+        chat_id = os.environ["TELEGRAM_CHAT_ID"]
+        meta_token = os.environ["META_ACCESS_TOKEN"]
+        ad_account_id = os.environ["META_AD_ACCOUNT_ID"]
+
+        print("BOT TOKEN EXISTS:", bool(token))
+        print("CHAT ID:", chat_id)
+
         response = send_report_to_telegram()
         return response.json()
+    except KeyError as e:
+        return {"status": "error", "message": f"missing {e.args[0]}"}, 500
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
@@ -31,5 +38,5 @@ def health():
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
