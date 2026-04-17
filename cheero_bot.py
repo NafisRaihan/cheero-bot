@@ -2,19 +2,32 @@ import os
 import requests
 from dotenv import load_dotenv
 
-if os.path.exists(".env"):
-    load_dotenv()
+def get_runtime_config():
+    if os.path.exists(".env"):
+        load_dotenv()
 
-META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN")
-META_AD_ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+    meta_access_token = os.environ.get("META_ACCESS_TOKEN")
+    meta_ad_account_id = os.environ.get("META_AD_ACCOUNT_ID")
+    telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
-print("BOT TOKEN:", os.environ.get("TELEGRAM_BOT_TOKEN"))
+    print("BOT TOKEN:", os.environ.get("TELEGRAM_BOT_TOKEN"))
 
-token = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not token:
-    raise ValueError("TELEGRAM_BOT_TOKEN is missing")
+    if not telegram_bot_token:
+        raise ValueError("TELEGRAM_BOT_TOKEN is missing")
+    if not telegram_chat_id:
+        raise ValueError("TELEGRAM_CHAT_ID is missing")
+    if not meta_access_token:
+        raise ValueError("META_ACCESS_TOKEN is missing")
+    if not meta_ad_account_id:
+        raise ValueError("META_AD_ACCOUNT_ID is missing")
+
+    return {
+        "meta_access_token": meta_access_token,
+        "meta_ad_account_id": meta_ad_account_id,
+        "telegram_bot_token": telegram_bot_token,
+        "telegram_chat_id": telegram_chat_id,
+    }
 
 
 INSTALL_ACTION_TYPES = ["mobile_app_install", "app_install", "omni_app_install"]
@@ -47,11 +60,11 @@ def detect_campaign_type(campaign_name):
     return "other"
 
 
-def fetch_meta_data():
-    url = f"https://graph.facebook.com/v19.0/{META_AD_ACCOUNT_ID}/insights"
+def fetch_meta_data(meta_access_token, meta_ad_account_id):
+    url = f"https://graph.facebook.com/v19.0/{meta_ad_account_id}/insights"
 
     params = {
-        "access_token": META_ACCESS_TOKEN,
+        "access_token": meta_access_token,
         "level": "campaign",
         "date_preset": "last_7d",
         "fields": "campaign_name,spend,impressions,clicks,ctr,cpc,actions,cost_per_action_type"
@@ -61,15 +74,15 @@ def fetch_meta_data():
     return res.json().get("data", [])
 
 
-def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+def send_telegram(msg, telegram_bot_token, telegram_chat_id):
+    url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
 
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": telegram_chat_id,
         "text": msg
     }
 
-    chat_id = TELEGRAM_CHAT_ID
+    chat_id = telegram_chat_id
     print("Sending to chat_id:", chat_id)
 
     try:
@@ -88,10 +101,16 @@ def send_telegram(msg):
 
 
 def main():
-    data = fetch_meta_data()
+    config = get_runtime_config()
+
+    data = fetch_meta_data(config["meta_access_token"], config["meta_ad_account_id"])
 
     if not data:
-        return send_telegram("No ads data found 😢")
+        return send_telegram(
+            "No ads data found 😢",
+            config["telegram_bot_token"],
+            config["telegram_chat_id"],
+        )
 
     message = "📊 Meta Ads Report (Last 7 Days)\n\n"
 
@@ -129,7 +148,11 @@ def main():
 
         message += "----------------------\n"
 
-    return send_telegram(message)
+    return send_telegram(
+        message,
+        config["telegram_bot_token"],
+        config["telegram_chat_id"],
+    )
 
 
 if __name__ == "__main__":
