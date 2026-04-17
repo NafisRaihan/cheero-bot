@@ -62,7 +62,15 @@ def send_telegram(msg):
         "text": msg
     }
 
-    requests.post(url, json=payload)
+    print("Sending to chat_id:", TELEGRAM_CHAT_ID)
+    response = requests.post(
+        url,
+        json=payload,
+        timeout=20
+    )
+
+    print("STATUS:", response.status_code)
+    print("RESPONSE:", response.text)
 
 
 def main():
