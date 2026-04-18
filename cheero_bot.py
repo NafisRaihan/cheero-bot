@@ -575,7 +575,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="campaign_name,adset_name,spend,impressions,clicks,actions,hourly_stats_aggregated_by_advertiser_time_zone",
+        fields="campaign_name,adset_name,spend,impressions,clicks,actions",
         time_range={"since": since_date, "until": until_date},
         breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
