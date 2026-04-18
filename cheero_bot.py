@@ -166,6 +166,17 @@ def normalize_adset_row(row):
     objective_name = f"{row.get('campaign_name', '')} {row.get('adset_name', '')}".strip()
     objective = detect_objective(objective_name)
 
+    if objective == "other":
+        action_signal = {
+            "install": install_count,
+            "message": message_count,
+            "sales": sales_count,
+            "follow": follow_count,
+        }
+        inferred_objective, inferred_value = max(action_signal.items(), key=lambda item: item[1])
+        if inferred_value > 0:
+            objective = inferred_objective
+
     if objective == "install":
         result_label = "Installs"
         result_count = install_count
@@ -282,6 +293,27 @@ def build_recommendations(best_rows, worst_rows, increasing_cost_rows):
     return recommendations[:3]
 
 
+def build_segment_summary(rows):
+    segments = {
+        "install": {"name": "Install Ads", "result_label": "Installs", "cost_label": "Cost/Install", "spend": 0.0, "results": 0.0},
+        "message": {"name": "Message Ads", "result_label": "Messages", "cost_label": "Cost/Message", "spend": 0.0, "results": 0.0},
+        "sales": {"name": "Sales Ads", "result_label": "Sales", "cost_label": "Cost/Sale", "spend": 0.0, "results": 0.0},
+        "follow": {"name": "Follow Ads", "result_label": "Follows", "cost_label": "Cost/Follow", "spend": 0.0, "results": 0.0},
+        "other": {"name": "Other Ads", "result_label": "Results", "cost_label": "Cost/Result", "spend": 0.0, "results": 0.0},
+    }
+
+    for row in rows:
+        objective = row.get("objective", "other")
+        if objective not in segments:
+            objective = "other"
+
+        segments[objective]["spend"] += row.get("spend", 0.0)
+        segments[objective]["results"] += row.get("result_count", 0.0)
+
+    ordered_keys = ["install", "message", "sales", "follow", "other"]
+    return [segments[key] for key in ordered_keys if segments[key]["spend"] > 0]
+
+
 def split_message(text, max_chars=3500):
     lines = text.split("\n")
     chunks = []
@@ -318,61 +350,46 @@ def send_telegram(msg, telegram_bot_token, telegram_chat_id):
     return responses[-1]
 
 
-def build_report_message(last_7d_rows, yesterday_rows, prev_day_rows, age_gender_rows, country_rows, time_rows, placement_rows):
-    normalized = [normalize_adset_row(row) for row in last_7d_rows]
+def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, placement_rows):
+    normalized = [normalize_adset_row(row) for row in today_rows]
     normalized = [row for row in normalized if row["spend"] > 0]
 
     if not normalized:
         return "No ads data found for the selected period 😢"
 
+    total_spend_today = sum(row["spend"] for row in normalized)
+    segment_summary = build_segment_summary(normalized)
     best_rows = select_top_rows(normalized, limit=3)
     worst_rows = select_worst_rows(normalized, limit=3)
     adset_snapshot = sorted(normalized, key=lambda item: item["spend"], reverse=True)[:8]
-
-    yesterday_map = build_day_compare_map(yesterday_rows)
-    prev_day_map = build_day_compare_map(prev_day_rows)
-
-    better_than_prev_day = []
-    cost_increasing = []
-    cost_decreasing = []
-
-    for adset_name, current in yesterday_map.items():
-        previous = prev_day_map.get(adset_name)
-        if not previous:
-            continue
-
-        spend_diff = current["spend"] - previous["spend"]
-        if spend_diff > 0:
-            cost_increasing.append((adset_name, spend_diff))
-        elif spend_diff < 0:
-            cost_decreasing.append((adset_name, abs(spend_diff)))
-
-        better_cost = (
-            current["cost_per_result"] > 0
-            and previous["cost_per_result"] > 0
-            and current["cost_per_result"] < previous["cost_per_result"]
-        )
-        better_ctr = current["ctr"] > previous["ctr"]
-
-        if better_cost or better_ctr:
-            better_than_prev_day.append(adset_name)
-
-    cost_increasing = sorted(cost_increasing, key=lambda item: item[1], reverse=True)[:3]
-    cost_decreasing = sorted(cost_decreasing, key=lambda item: item[1], reverse=True)[:3]
 
     best_age_gender = best_row_from_breakdown(age_gender_rows)
     best_country = best_row_from_breakdown(country_rows)
     best_time = best_row_from_breakdown(time_rows)
     best_placement = best_row_from_breakdown(placement_rows)
 
-    recommendations = build_recommendations(best_rows, worst_rows, cost_increasing)
+    recommendations = build_recommendations(best_rows, worst_rows, [])
 
-    report_date = get_day_label(1)
-    previous_date = get_day_label(2)
+    report_date = get_day_label(0)
 
     lines = []
-    lines.append("📊 CHEERO Meta Ads Daily Intelligence")
-    lines.append(f"🗓 Window: Last 7 Days | Day Compare: {report_date} vs {previous_date} | Report Time: 9:00 PM (BD)")
+    lines.append("📊 CHEERO Meta Ads Today Report")
+    lines.append(f"🗓 Date (BD): {report_date} | Report Time: 9:00 PM (BD)")
+    lines.append("")
+
+    lines.append("🧾 Summary")
+    lines.append(f"- Total Budget Spent Today: {format_money(total_spend_today)}")
+    lines.append("")
+
+    lines.append("📌 Segment-wise Budget & Results")
+    for segment in segment_summary:
+        results = segment["results"]
+        spend = segment["spend"]
+        cpr = spend / results if results > 0 else 0.0
+        cost_value = format_money(cpr) if results > 0 else "N/A"
+        lines.append(
+            f"- {segment['name']}: Spend {format_money(spend)} | {segment['result_label']} {format_num(results)} | {segment['cost_label']} {cost_value}"
+        )
     lines.append("")
 
     lines.append("🔥 Best Performing Ad Sets")
@@ -408,30 +425,6 @@ def build_report_message(last_7d_rows, yesterday_rows, prev_day_rows, age_gender
         )
     lines.append("")
 
-    lines.append("📈 Better Than Previous Day")
-    if better_than_prev_day:
-        for name in better_than_prev_day[:5]:
-            lines.append(f"- {name}")
-    else:
-        lines.append("- No clear winners vs previous day")
-    lines.append("")
-
-    lines.append("💸 Cost Increasing")
-    if cost_increasing:
-        for name, delta in cost_increasing:
-            lines.append(f"- {name}: +{format_money(delta)} spend vs prev day")
-    else:
-        lines.append("- No major cost increase detected")
-    lines.append("")
-
-    lines.append("💰 Cost Decreasing")
-    if cost_decreasing:
-        for name, delta in cost_decreasing:
-            lines.append(f"- {name}: -{format_money(delta)} spend vs prev day")
-    else:
-        lines.append("- No major cost decrease detected")
-    lines.append("")
-
     lines.append("🧠 Best Performing Demography")
     has_demography_line = False
     if best_age_gender:
@@ -464,31 +457,14 @@ def build_report_message(last_7d_rows, yesterday_rows, prev_day_rows, age_gender
 def main():
     config = get_runtime_config()
 
-    last_7d_rows = fetch_insights(
+    today_date = get_day_label(0)
+
+    today_rows = fetch_insights(
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
         fields=INSIGHTS_FIELDS,
-        date_preset="last_7d",
-    )
-
-    yesterday_date = get_day_label(1)
-    previous_date = get_day_label(2)
-
-    yesterday_rows = fetch_insights(
-        config["meta_access_token"],
-        config["meta_ad_account_id"],
-        level="adset",
-        fields=INSIGHTS_FIELDS,
-        time_range={"since": yesterday_date, "until": yesterday_date},
-    )
-
-    prev_day_rows = fetch_insights(
-        config["meta_access_token"],
-        config["meta_ad_account_id"],
-        level="adset",
-        fields=INSIGHTS_FIELDS,
-        time_range={"since": previous_date, "until": previous_date},
+        time_range={"since": today_date, "until": today_date},
     )
 
     age_gender_rows = fetch_insights_safe(
@@ -496,7 +472,7 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,age,gender",
-        time_range={"since": yesterday_date, "until": yesterday_date},
+        time_range={"since": today_date, "until": today_date},
         breakdowns=["age", "gender"],
     )
 
@@ -505,7 +481,7 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,country",
-        time_range={"since": yesterday_date, "until": yesterday_date},
+        time_range={"since": today_date, "until": today_date},
         breakdowns=["country"],
     )
 
@@ -514,7 +490,7 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,hourly_stats_aggregated_by_advertiser_time_zone",
-        time_range={"since": yesterday_date, "until": yesterday_date},
+        time_range={"since": today_date, "until": today_date},
         breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
 
@@ -523,14 +499,12 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,publisher_platform,platform_position",
-        time_range={"since": yesterday_date, "until": yesterday_date},
+        time_range={"since": today_date, "until": today_date},
         breakdowns=["publisher_platform", "platform_position"],
     )
 
     message = build_report_message(
-        last_7d_rows,
-        yesterday_rows,
-        prev_day_rows,
+        today_rows,
         age_gender_rows,
         country_rows,
         time_rows,
