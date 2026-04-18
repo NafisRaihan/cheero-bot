@@ -39,8 +39,11 @@ def health():
 
 @app.route("/env-check", methods=["GET"])
 def env_check():
-    import os
     return {
+        "CODE_MARKER": "env-debug-2026-04-18-v1",
+        "RAILWAY_SERVICE_NAME": os.environ.get("RAILWAY_SERVICE_NAME"),
+        "RAILWAY_ENVIRONMENT_NAME": os.environ.get("RAILWAY_ENVIRONMENT_NAME"),
+        "RAILWAY_PROJECT_NAME": os.environ.get("RAILWAY_PROJECT_NAME"),
         "TELEGRAM_BOT_TOKEN": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
         "TELEGRAM_CHAT_ID": bool(os.environ.get("TELEGRAM_CHAT_ID")),
         "META_ACCESS_TOKEN": bool(os.environ.get("META_ACCESS_TOKEN")),
