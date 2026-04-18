@@ -73,6 +73,12 @@ def format_num(value):
     return f"{number:.2f}"
 
 
+def format_cost_value(result_count, cost_per_result):
+    if to_float(result_count) <= 0:
+        return "N/A"
+    return format_money(cost_per_result)
+
+
 def get_metric_value(metric_list, action_types):
     for action_type in action_types:
         for item in metric_list or []:
@@ -394,26 +400,29 @@ def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, p
 
     lines.append("🔥 Best Performing Ad Sets")
     for index, row in enumerate(best_rows, start=1):
+        cost_value = format_cost_value(row["result_count"], row["cost_per_result"])
         lines.append(
             f"{index}. {row['adset_name']} ({row['objective'].title()})"
         )
         lines.append(
-            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
+            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {cost_value} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
     lines.append("⚠️ Worst Performing Ad Sets")
     for index, row in enumerate(worst_rows, start=1):
+        cost_value = format_cost_value(row["result_count"], row["cost_per_result"])
         lines.append(
             f"{index}. {row['adset_name']} ({row['objective'].title()})"
         )
         lines.append(
-            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
+            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {cost_value} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
     lines.append("📦 Ad Set-wise Snapshot (Top by Spend)")
     for index, row in enumerate(adset_snapshot, start=1):
+        cost_value = format_cost_value(row["result_count"], row["cost_per_result"])
         lines.append(
             f"{index}. {row['adset_name']} ({row['objective'].title()})"
         )
@@ -421,7 +430,7 @@ def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, p
             f"   • CTR: {row['ctr']:.2f}% | CPC: {format_money(row['cpc'])} | {row['result_label']}: {format_num(row['result_count'])}"
         )
         lines.append(
-            f"   • {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
+            f"   • {row['cost_label']}: {cost_value} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
