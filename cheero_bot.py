@@ -11,8 +11,6 @@ def get_runtime_config():
     telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
-    print("BOT TOKEN:", os.environ.get("TELEGRAM_BOT_TOKEN"))
-
     if not telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is missing")
     if not telegram_chat_id:
@@ -82,21 +80,15 @@ def send_telegram(msg, telegram_bot_token, telegram_chat_id):
         "text": msg
     }
 
-    chat_id = telegram_chat_id
-    print("Sending to chat_id:", chat_id)
-
     try:
         response = requests.post(
             url,
             json=payload,
             timeout=20
         )
-        print("TELEGRAM RESPONSE:", response.status_code)
-        print("TELEGRAM BODY:", response.text)
         response.raise_for_status()
         return response
     except Exception as e:
-        print("TELEGRAM ERROR:", str(e))
         raise
 
 

@@ -15,13 +15,10 @@ def send_report_to_telegram():
 def run_report():
     # call your existing report function here
     try:
-        token = os.environ["TELEGRAM_BOT_TOKEN"]
-        chat_id = os.environ["TELEGRAM_CHAT_ID"]
-        meta_token = os.environ["META_ACCESS_TOKEN"]
-        ad_account_id = os.environ["META_AD_ACCOUNT_ID"]
-
-        print("BOT TOKEN EXISTS:", bool(token))
-        print("CHAT ID:", chat_id)
+        os.environ["TELEGRAM_BOT_TOKEN"]
+        os.environ["TELEGRAM_CHAT_ID"]
+        os.environ["META_ACCESS_TOKEN"]
+        os.environ["META_AD_ACCOUNT_ID"]
 
         response = send_report_to_telegram()
         return response.json()
@@ -39,24 +36,11 @@ def health():
 
 @app.route("/env-check", methods=["GET"])
 def env_check():
-    matching_keys = [
-        key
-        for key in os.environ.keys()
-        if any(tag in key.upper() for tag in ["TELEGRAM", "META", "MARKER"])
-    ]
-
     return {
-        "CODE_MARKER": "env-debug-2026-04-18-v1",
-        "RAILWAY_SERVICE_NAME": os.environ.get("RAILWAY_SERVICE_NAME"),
-        "RAILWAY_ENVIRONMENT_NAME": os.environ.get("RAILWAY_ENVIRONMENT_NAME"),
-        "RAILWAY_PROJECT_NAME": os.environ.get("RAILWAY_PROJECT_NAME"),
-        "MATCHING_ENV_KEYS": matching_keys,
-        "MATCHING_ENV_KEYS_REPR": [repr(key) for key in matching_keys],
         "TELEGRAM_BOT_TOKEN": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
         "TELEGRAM_CHAT_ID": bool(os.environ.get("TELEGRAM_CHAT_ID")),
         "META_ACCESS_TOKEN": bool(os.environ.get("META_ACCESS_TOKEN")),
         "META_AD_ACCOUNT_ID": bool(os.environ.get("META_AD_ACCOUNT_ID")),
-        "TEST_MARKER": os.environ.get("TEST_MARKER"),
     }
 
 
