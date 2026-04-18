@@ -2,8 +2,8 @@ name: Daily Meta Report
 
 on:
   schedule:
-    # 15:00 UTC = 21:00 Bangladesh Time (UTC+6)
-    - cron: "0 15 * * *"
+    # 17:59 UTC = 23:59 Bangladesh Time (UTC+6)
+    - cron: "59 17 * * *"
   workflow_dispatch:
 
 jobs:

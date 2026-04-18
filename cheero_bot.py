@@ -160,6 +160,104 @@ def fetch_insights_safe(meta_access_token, meta_ad_account_id, level, fields, da
         return []
 
 
+def parse_hour_bucket_start(hour_bucket):
+    if not hour_bucket:
+        return None
+
+    start_text = hour_bucket.split(" - ")[0].strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(start_text, fmt).replace(tzinfo=BD_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def actions_to_map(actions):
+    result = {}
+    for item in actions or []:
+        action_type = item.get("action_type")
+        if not action_type:
+            continue
+        result[action_type] = result.get(action_type, 0.0) + to_float(item.get("value"))
+    return result
+
+
+def map_to_actions(action_map):
+    return [
+        {"action_type": action_type, "value": value}
+        for action_type, value in action_map.items()
+        if value > 0
+    ]
+
+
+def build_cost_per_action_type(spend, action_map):
+    cost_rows = []
+    for action_type, action_value in action_map.items():
+        if action_value > 0:
+            cost_rows.append({"action_type": action_type, "value": spend / action_value})
+    return cost_rows
+
+
+def aggregate_last_24h_adset_rows(hourly_rows, window_start, window_end):
+    grouped = {}
+
+    for row in hourly_rows:
+        hour_bucket = row.get("hourly_stats_aggregated_by_advertiser_time_zone")
+        bucket_start = parse_hour_bucket_start(hour_bucket)
+        if not bucket_start:
+            continue
+        if bucket_start < window_start or bucket_start > window_end:
+            continue
+
+        campaign_name = row.get("campaign_name") or "Unknown Campaign"
+        adset_name = row.get("adset_name") or "Unknown Ad Set"
+        group_key = f"{campaign_name}::{adset_name}"
+
+        if group_key not in grouped:
+            grouped[group_key] = {
+                "campaign_name": campaign_name,
+                "adset_name": adset_name,
+                "spend": 0.0,
+                "impressions": 0,
+                "clicks": 0,
+                "action_map": {},
+            }
+
+        bucket = grouped[group_key]
+        bucket["spend"] += to_float(row.get("spend"))
+        bucket["impressions"] += to_int(row.get("impressions"))
+        bucket["clicks"] += to_int(row.get("clicks"))
+
+        action_map = actions_to_map(row.get("actions"))
+        for action_type, value in action_map.items():
+            bucket["action_map"][action_type] = bucket["action_map"].get(action_type, 0.0) + value
+
+    merged_rows = []
+    for bucket in grouped.values():
+        spend = bucket["spend"]
+        impressions = bucket["impressions"]
+        clicks = bucket["clicks"]
+        ctr = (clicks / impressions) * 100 if impressions > 0 else 0.0
+        cpc = (spend / clicks) if clicks > 0 else 0.0
+
+        merged_rows.append(
+            {
+                "campaign_name": bucket["campaign_name"],
+                "adset_name": bucket["adset_name"],
+                "spend": spend,
+                "impressions": impressions,
+                "clicks": clicks,
+                "ctr": ctr,
+                "cpc": cpc,
+                "actions": map_to_actions(bucket["action_map"]),
+                "cost_per_action_type": build_cost_per_action_type(spend, bucket["action_map"]),
+            }
+        )
+
+    return merged_rows
+
+
 def normalize_adset_row(row):
     actions = row.get("actions", [])
     cost_per_action_type = row.get("cost_per_action_type", [])
@@ -356,14 +454,14 @@ def send_telegram(msg, telegram_bot_token, telegram_chat_id):
     return responses[-1]
 
 
-def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, placement_rows):
-    normalized = [normalize_adset_row(row) for row in today_rows]
+def build_report_message(last_24h_rows, age_gender_rows, country_rows, time_rows, placement_rows, window_start, window_end):
+    normalized = [normalize_adset_row(row) for row in last_24h_rows]
     normalized = [row for row in normalized if row["spend"] > 0]
 
     if not normalized:
         return "No ads data found for the selected period 😢"
 
-    total_spend_today = sum(row["spend"] for row in normalized)
+    total_spend_last_24h = sum(row["spend"] for row in normalized)
     segment_summary = build_segment_summary(normalized)
     best_rows = select_top_rows(normalized, limit=3)
     worst_rows = select_worst_rows(normalized, limit=3)
@@ -376,15 +474,17 @@ def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, p
 
     recommendations = build_recommendations(best_rows, worst_rows, [])
 
-    report_date = get_day_label(0)
+    start_text = window_start.strftime("%Y-%m-%d %H:%M")
+    end_text = window_end.strftime("%Y-%m-%d %H:%M")
 
     lines = []
-    lines.append("📊 CHEERO Meta Ads Today Report")
-    lines.append(f"🗓 Date (BD): {report_date} | Report Time: 9:00 PM (BD)")
+    lines.append("📊 CHEERO Meta Ads Last 24 Hours Report")
+    lines.append(f"🕒 Window (BD): {start_text} → {end_text}")
+    lines.append("⏰ Scheduled Delivery: 11:59 PM (BD)")
     lines.append("")
 
     lines.append("🧾 Summary")
-    lines.append(f"- Total Budget Spent Today: {format_money(total_spend_today)}")
+    lines.append(f"- Total Budget Spent (Last 24 Hours): {format_money(total_spend_last_24h)}")
     lines.append("")
 
     lines.append("📌 Segment-wise Budget & Results")
@@ -466,22 +566,28 @@ def build_report_message(today_rows, age_gender_rows, country_rows, time_rows, p
 def main():
     config = get_runtime_config()
 
-    today_date = get_day_label(0)
+    now_bd = datetime.now(BD_TZ)
+    window_start = now_bd - timedelta(hours=24)
+    since_date = window_start.date().isoformat()
+    until_date = now_bd.date().isoformat()
 
-    today_rows = fetch_insights(
+    hourly_adset_rows = fetch_insights(
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields=INSIGHTS_FIELDS,
-        time_range={"since": today_date, "until": today_date},
+        fields="campaign_name,adset_name,spend,impressions,clicks,actions,hourly_stats_aggregated_by_advertiser_time_zone",
+        time_range={"since": since_date, "until": until_date},
+        breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
+
+    last_24h_rows = aggregate_last_24h_adset_rows(hourly_adset_rows, window_start, now_bd)
 
     age_gender_rows = fetch_insights_safe(
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,age,gender",
-        time_range={"since": today_date, "until": today_date},
+        time_range={"since": since_date, "until": until_date},
         breakdowns=["age", "gender"],
     )
 
@@ -490,7 +596,7 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,country",
-        time_range={"since": today_date, "until": today_date},
+        time_range={"since": since_date, "until": until_date},
         breakdowns=["country"],
     )
 
@@ -499,7 +605,7 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,hourly_stats_aggregated_by_advertiser_time_zone",
-        time_range={"since": today_date, "until": today_date},
+        time_range={"since": since_date, "until": until_date},
         breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
 
@@ -508,16 +614,18 @@ def main():
         config["meta_ad_account_id"],
         level="adset",
         fields="spend,ctr,cpc,actions,publisher_platform,platform_position",
-        time_range={"since": today_date, "until": today_date},
+        time_range={"since": since_date, "until": until_date},
         breakdowns=["publisher_platform", "platform_position"],
     )
 
     message = build_report_message(
-        today_rows,
+        last_24h_rows,
         age_gender_rows,
         country_rows,
         time_rows,
         placement_rows,
+        window_start,
+        now_bd,
     )
 
     return send_telegram(
