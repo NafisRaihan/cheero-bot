@@ -408,18 +408,25 @@ def build_report_message(last_7d_rows, yesterday_rows, prev_day_rows, age_gender
     lines.append("")
 
     lines.append("🧠 Best Performing Demography")
+    has_demography_line = False
     if best_age_gender:
         lines.append(f"- Age/Gender: {best_age_gender.get('age', 'N/A')} | {best_age_gender.get('gender', 'N/A')}")
+        has_demography_line = True
     if best_country:
         lines.append(f"- Location: {best_country.get('country', 'N/A')}")
+        has_demography_line = True
     if best_time:
         lines.append(
             f"- Time: {best_time.get('hourly_stats_aggregated_by_advertiser_time_zone', 'N/A')}"
         )
+        has_demography_line = True
     if best_placement:
         lines.append(
             f"- Placement: {best_placement.get('publisher_platform', 'N/A')} / {best_placement.get('platform_position', 'N/A')}"
         )
+        has_demography_line = True
+    if not has_demography_line:
+        lines.append("- Breakdown data unavailable for this ad account.")
     lines.append("")
 
     lines.append("✅ Recommendations")
