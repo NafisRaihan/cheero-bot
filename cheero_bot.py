@@ -96,6 +96,18 @@ def detect_objective(name):
     return "other"
 
 
+def get_cost_label(objective):
+    if objective == "install":
+        return "Cost/Install"
+    if objective == "message":
+        return "Cost/Message"
+    if objective == "sales":
+        return "Cost/Sale"
+    if objective == "follow":
+        return "Cost/Follow"
+    return "Cost/Result"
+
+
 def fetch_insights(meta_access_token, meta_ad_account_id, level, fields, date_preset=None, time_range=None, breakdowns=None):
     url = f"https://graph.facebook.com/{API_VERSION}/{meta_ad_account_id}/insights"
     params = {
@@ -188,6 +200,7 @@ def normalize_adset_row(row):
         "campaign_name": row.get("campaign_name") or "Unknown Campaign",
         "adset_name": row.get("adset_name") or "Unknown Ad Set",
         "objective": objective,
+        "cost_label": get_cost_label(objective),
         "spend": spend,
         "impressions": to_int(row.get("impressions")),
         "clicks": to_int(row.get("clicks")),
@@ -359,27 +372,39 @@ def build_report_message(last_7d_rows, yesterday_rows, prev_day_rows, age_gender
 
     lines = []
     lines.append("📊 CHEERO Meta Ads Daily Intelligence")
-    lines.append(f"🗓 Window: Last 7 Days | Day Compare: {report_date} vs {previous_date}")
+    lines.append(f"🗓 Window: Last 7 Days | Day Compare: {report_date} vs {previous_date} | Report Time: 9:00 PM (BD)")
     lines.append("")
 
     lines.append("🔥 Best Performing Ad Sets")
     for index, row in enumerate(best_rows, start=1):
         lines.append(
-            f"{index}. {row['adset_name']} | {row['objective'].title()} | {row['result_label']}: {format_num(row['result_count'])} | CPR: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
+            f"{index}. {row['adset_name']} ({row['objective'].title()})"
+        )
+        lines.append(
+            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
     lines.append("⚠️ Worst Performing Ad Sets")
     for index, row in enumerate(worst_rows, start=1):
         lines.append(
-            f"{index}. {row['adset_name']} | {row['objective'].title()} | {row['result_label']}: {format_num(row['result_count'])} | CPR: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
+            f"{index}. {row['adset_name']} ({row['objective'].title()})"
+        )
+        lines.append(
+            f"   • {row['result_label']}: {format_num(row['result_count'])} | {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
     lines.append("📦 Ad Set-wise Snapshot (Top by Spend)")
     for index, row in enumerate(adset_snapshot, start=1):
         lines.append(
-            f"{index}. {row['adset_name']} | CTR: {row['ctr']:.2f}% | CPC: {format_money(row['cpc'])} | {row['result_label']}: {format_num(row['result_count'])} | Spend: {format_money(row['spend'])}"
+            f"{index}. {row['adset_name']} ({row['objective'].title()})"
+        )
+        lines.append(
+            f"   • CTR: {row['ctr']:.2f}% | CPC: {format_money(row['cpc'])} | {row['result_label']}: {format_num(row['result_count'])}"
+        )
+        lines.append(
+            f"   • {row['cost_label']}: {format_money(row['cost_per_result'])} | Spend: {format_money(row['spend'])}"
         )
     lines.append("")
 
