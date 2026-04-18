@@ -201,7 +201,6 @@ def build_cost_per_action_type(spend, action_map):
 
 def aggregate_last_24h_adset_rows(hourly_rows, window_start, window_end):
     grouped = {}
-    filtered_out = 0
 
     for row in hourly_rows:
         hour_bucket = row.get("hourly_stats_aggregated_by_advertiser_time_zone")
@@ -209,8 +208,6 @@ def aggregate_last_24h_adset_rows(hourly_rows, window_start, window_end):
         if not bucket_start:
             continue
         if bucket_start < window_start or bucket_start > window_end:
-            print(f"DEBUG: Filtered out row: bucket_start={bucket_start}, window_start={window_start}, window_end={window_end}")
-            filtered_out += 1
             continue
 
         campaign_name = row.get("campaign_name") or "Unknown Campaign"
@@ -235,8 +232,6 @@ def aggregate_last_24h_adset_rows(hourly_rows, window_start, window_end):
         action_map = actions_to_map(row.get("actions"))
         for action_type, value in action_map.items():
             bucket["action_map"][action_type] = bucket["action_map"].get(action_type, 0.0) + value
-
-    print(f"DEBUG: aggregate_last_24h_adset_rows: input={len(hourly_rows)}, filtered_out={filtered_out}, grouped={len(grouped)}")
 
     merged_rows = []
     for bucket in grouped.values():
@@ -576,23 +571,15 @@ def main():
     since_date = window_start.date().isoformat()
     until_date = now_bd.date().isoformat()
 
-    print(f"DEBUG: now_bd={now_bd}, window_start={window_start}, since_date={since_date}, until_date={until_date}")
-
-    hourly_adset_rows = fetch_insights(
+    # For simplicity, use daily-level insights without hourly breakdown
+    # Meta API will aggregate data within the time_range automatically
+    last_24h_rows = fetch_insights(
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="campaign_name,adset_name,spend,impressions,clicks,actions",
+        fields="campaign_name,adset_name,spend,impressions,clicks,ctr,cpc,actions,cost_per_action_type",
         time_range={"since": since_date, "until": until_date},
-        breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
-
-    print(f"DEBUG: fetch_insights returned {len(hourly_adset_rows)} rows")
-    if hourly_adset_rows:
-        print(f"DEBUG: first row sample: {hourly_adset_rows[0]}")
-
-    last_24h_rows = aggregate_last_24h_adset_rows(hourly_adset_rows, window_start, now_bd)
-    print(f"DEBUG: aggregate_last_24h_adset_rows returned {len(last_24h_rows)} rows")
 
     age_gender_rows = fetch_insights_safe(
         config["meta_access_token"],
