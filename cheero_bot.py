@@ -350,23 +350,28 @@ def build_day_compare_map(rows):
     return mapping
 
 
-def best_row_from_breakdown(rows):
-    best = None
-    best_score = float("-inf")
+def best_row_from_breakdown(rows, keys, min_spend_share=0.05):
+    """Combine ad-set rows per breakdown value (e.g. age+gender) and return the
+    group with the most results per taka among groups with meaningful spend."""
+    groups = {}
     for row in rows:
-        spend = to_float(row.get("spend"))
-        ctr = to_float(row.get("ctr"))
-        cpc = to_float(row.get("cpc"), default=9999)
-        results = get_metric_value(row.get("actions", []), ALL_RESULT_ACTION_TYPES)
-        if spend > 0 and results > 0:
-            score = (results / spend) * 100
-        else:
-            score = ctr - cpc
+        key = tuple(row.get(k, "N/A") for k in keys)
+        group = groups.setdefault(key, dict(zip(keys, key), spend=0.0, results=0.0))
+        group["spend"] += to_float(row.get("spend"))
+        actions = row.get("actions", [])
+        group["results"] += sum(
+            get_metric_value(actions, types)
+            for types in (INSTALL_ACTION_TYPES, MESSAGE_ACTION_TYPES, SALES_ACTION_TYPES, FOLLOW_ACTION_TYPES)
+        )
 
-        if score > best_score:
-            best_score = score
-            best = row
-    return best
+    total_spend = sum(group["spend"] for group in groups.values())
+    candidates = [
+        group for group in groups.values()
+        if group["results"] > 0 and group["spend"] >= total_spend * min_spend_share
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda group: group["results"] / group["spend"])
 
 
 def build_recommendations(best_rows, worst_rows, increasing_cost_rows):
@@ -467,10 +472,10 @@ def build_report_message(last_24h_rows, age_gender_rows, country_rows, time_rows
     worst_rows = select_worst_rows(normalized, limit=3)
     adset_snapshot = sorted(normalized, key=lambda item: item["spend"], reverse=True)[:8]
 
-    best_age_gender = best_row_from_breakdown(age_gender_rows)
-    best_country = best_row_from_breakdown(country_rows)
-    best_time = best_row_from_breakdown(time_rows)
-    best_placement = best_row_from_breakdown(placement_rows)
+    best_age_gender = best_row_from_breakdown(age_gender_rows, ["age", "gender"])
+    best_country = best_row_from_breakdown(country_rows, ["country"])
+    best_time = best_row_from_breakdown(time_rows, ["hourly_stats_aggregated_by_advertiser_time_zone"])
+    best_placement = best_row_from_breakdown(placement_rows, ["publisher_platform", "platform_position"])
 
     recommendations = build_recommendations(best_rows, worst_rows, [])
 
@@ -478,13 +483,13 @@ def build_report_message(last_24h_rows, age_gender_rows, country_rows, time_rows
     end_text = window_end.strftime("%Y-%m-%d %H:%M")
 
     lines = []
-    lines.append("📊 CHEERO Meta Ads Last 24 Hours Report")
+    lines.append(f"📊 CHEERO Meta Ads Daily Report — {window_start.strftime('%d %b %Y')}")
     lines.append(f"🕒 Window (BD): {start_text} → {end_text}")
     lines.append("⏰ Scheduled Delivery: 11:59 PM (BD)")
     lines.append("")
 
     lines.append("🧾 Summary")
-    lines.append(f"- Total Budget Spent (Last 24 Hours): {format_money(total_spend_last_24h)}")
+    lines.append(f"- Total Budget Spent: {format_money(total_spend_last_24h)}")
     lines.append("")
 
     lines.append("📌 Segment-wise Budget & Results")
@@ -534,26 +539,23 @@ def build_report_message(last_24h_rows, age_gender_rows, country_rows, time_rows
         )
     lines.append("")
 
-    lines.append("🧠 Best Performing Demography")
+    lines.append("🧠 Best Performing Demography (lowest cost per result)")
+    demography_lines = [
+        ("Age/Gender", best_age_gender, lambda g: f"{g['age']} {g['gender']}"),
+        ("Location", best_country, lambda g: g["country"]),
+        ("Time", best_time, lambda g: g["hourly_stats_aggregated_by_advertiser_time_zone"]),
+        ("Placement", best_placement, lambda g: f"{g['publisher_platform']} / {g['platform_position']}"),
+    ]
     has_demography_line = False
-    if best_age_gender:
-        lines.append(f"- Age/Gender: {best_age_gender.get('age', 'N/A')} | {best_age_gender.get('gender', 'N/A')}")
-        has_demography_line = True
-    if best_country:
-        lines.append(f"- Location: {best_country.get('country', 'N/A')}")
-        has_demography_line = True
-    if best_time:
-        lines.append(
-            f"- Time: {best_time.get('hourly_stats_aggregated_by_advertiser_time_zone', 'N/A')}"
-        )
-        has_demography_line = True
-    if best_placement:
-        lines.append(
-            f"- Placement: {best_placement.get('publisher_platform', 'N/A')} / {best_placement.get('platform_position', 'N/A')}"
-        )
-        has_demography_line = True
+    for label, group, describe in demography_lines:
+        if group:
+            lines.append(
+                f"- {label}: {describe(group)} | Results {format_num(group['results'])} | "
+                f"Cost/Result {format_money(group['spend'] / group['results'])} | Spend {format_money(group['spend'])}"
+            )
+            has_demography_line = True
     if not has_demography_line:
-        lines.append("- Breakdown data unavailable for this ad account.")
+        lines.append("- Breakdown data unavailable for this period.")
     lines.append("")
 
     lines.append("✅ Recommendations")
@@ -567,12 +569,13 @@ def main():
     config = get_runtime_config()
 
     now_bd = datetime.now(BD_TZ)
-    window_start = now_bd - timedelta(hours=24)
-    since_date = window_start.date().isoformat()
-    until_date = now_bd.date().isoformat()
+    # Report one full BD calendar day. The 6h offset means a run delayed past
+    # midnight (GitHub cron often starts late) still reports the day just ended.
+    report_day = (now_bd - timedelta(hours=6)).date()
+    window_start = datetime.combine(report_day, datetime.min.time(), tzinfo=BD_TZ)
+    window_end = min(now_bd, window_start + timedelta(hours=23, minutes=59))
+    since_date = until_date = report_day.isoformat()
 
-    # For simplicity, use daily-level insights without hourly breakdown
-    # Meta API will aggregate data within the time_range automatically
     last_24h_rows = fetch_insights(
         config["meta_access_token"],
         config["meta_ad_account_id"],
@@ -585,7 +588,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="spend,ctr,cpc,actions,age,gender",
+        fields="spend,ctr,cpc,actions",
         time_range={"since": since_date, "until": until_date},
         breakdowns=["age", "gender"],
     )
@@ -594,7 +597,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="spend,ctr,cpc,actions,country",
+        fields="spend,ctr,cpc,actions",
         time_range={"since": since_date, "until": until_date},
         breakdowns=["country"],
     )
@@ -603,7 +606,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="spend,ctr,cpc,actions,hourly_stats_aggregated_by_advertiser_time_zone",
+        fields="spend,ctr,cpc,actions",
         time_range={"since": since_date, "until": until_date},
         breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
     )
@@ -612,7 +615,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="spend,ctr,cpc,actions,publisher_platform,platform_position",
+        fields="spend,ctr,cpc,actions",
         time_range={"since": since_date, "until": until_date},
         breakdowns=["publisher_platform", "platform_position"],
     )
@@ -624,7 +627,7 @@ def main():
         time_rows,
         placement_rows,
         window_start,
-        now_bd,
+        window_end,
     )
 
     return send_telegram(
