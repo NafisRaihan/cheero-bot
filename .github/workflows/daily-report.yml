@@ -13,3 +13,12 @@ jobs:
       - name: Trigger Railway report endpoint
         run: |
           curl --fail --show-error --silent "https://cheero-bot-production.up.railway.app/run-report"
+
+  # GitHub disables scheduled workflows after 60 days without repo activity.
+  # This keeps the schedule alive via the API (no dummy commits).
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: gautamkrishnar/keepalive-workflow@v2
