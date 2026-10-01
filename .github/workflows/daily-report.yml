@@ -1,9 +1,9 @@
 name: Daily Meta Report
 
+# The nightly 23:59 BD report is scheduled inside the Railway app (app.py),
+# because GitHub's cron ran up to 4 hours late. This workflow is a manual
+# backup: Actions -> Daily Meta Report -> Run workflow.
 on:
-  schedule:
-    # 17:59 UTC = 23:59 Bangladesh Time (UTC+6)
-    - cron: "59 17 * * *"
   workflow_dispatch:
 
 jobs:
@@ -13,19 +13,3 @@ jobs:
       - name: Trigger Railway report endpoint
         run: |
           curl --fail --show-error --silent "https://cheero-bot-production.up.railway.app/run-report"
-
-  # GitHub disables scheduled workflows after 60 days without repo activity.
-  # This keeps the schedule alive via the API (no dummy commits).
-  keepalive:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Re-enable this workflow to reset the inactivity timer
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl --fail --show-error --silent -X PUT \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/daily-report.yml/enable"
