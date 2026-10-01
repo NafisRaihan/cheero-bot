@@ -102,6 +102,24 @@ def detect_objective(name):
     return "other"
 
 
+# Meta's optimization goal is what the ad set is actually bought for; campaign
+# names are unreliable (e.g. "HSC 28 MAX SALE PUSH" ad sets optimize for REPLIES).
+OPTIMIZATION_GOAL_OBJECTIVES = {
+    "APP_INSTALLS": "install",
+    "APP_INSTALLS_AND_OFFSITE_CONVERSIONS": "install",
+    "REPLIES": "message",
+    "CONVERSATIONS": "message",
+    "MESSAGING_PURCHASE_CONVERSION": "message",
+    "MESSAGING_APPOINTMENT_CONVERSION": "message",
+    "OFFSITE_CONVERSIONS": "sales",
+    "VALUE": "sales",
+    "PAGE_LIKES": "follow",
+    "REACH": "awareness",
+    "IMPRESSIONS": "awareness",
+    "AD_RECALL_LIFT": "awareness",
+}
+
+
 def get_cost_label(objective):
     if objective == "install":
         return "Cost/Install"
@@ -111,6 +129,8 @@ def get_cost_label(objective):
         return "Cost/Sale"
     if objective == "follow":
         return "Cost/Follow"
+    if objective == "awareness":
+        return "Cost/1K Reach"
     return "Cost/Result"
 
 
@@ -267,8 +287,10 @@ def normalize_adset_row(row):
     follow_count = get_metric_value(actions, FOLLOW_ACTION_TYPES)
     sales_count = get_metric_value(actions, SALES_ACTION_TYPES)
 
-    objective_name = f"{row.get('campaign_name', '')} {row.get('adset_name', '')}".strip()
-    objective = detect_objective(objective_name)
+    objective = OPTIMIZATION_GOAL_OBJECTIVES.get(row.get("optimization_goal"))
+    if not objective:
+        objective_name = f"{row.get('campaign_name', '')} {row.get('adset_name', '')}".strip()
+        objective = detect_objective(objective_name)
 
     if objective == "other":
         action_signal = {
@@ -293,6 +315,10 @@ def normalize_adset_row(row):
         result_label = "Purchases"
         result_count = sales_count
         cost_per_result = get_metric_value(cost_per_action_type, SALES_ACTION_TYPES)
+    elif objective == "awareness":
+        result_label = "Reach"
+        result_count = to_float(row.get("reach"))
+        cost_per_result = 0.0
     elif objective == "follow":
         result_label = "Follows"
         result_count = follow_count
@@ -305,6 +331,8 @@ def normalize_adset_row(row):
     spend = to_float(row.get("spend"))
     ctr = to_float(row.get("ctr"))
     cpc = to_float(row.get("cpc"))
+    if objective == "awareness" and result_count > 0:
+        cost_per_result = spend / result_count * 1000
 
     if spend > 0 and result_count > 0:
         score = (result_count / spend) * 100
@@ -329,12 +357,13 @@ def normalize_adset_row(row):
 
 
 def select_top_rows(rows, limit=3):
-    filtered = [row for row in rows if row["spend"] > 0]
+    filtered = [row for row in rows if row["spend"] > 0 and row["objective"] != "awareness"]
     return sorted(filtered, key=lambda item: item["score"], reverse=True)[:limit]
 
 
 def select_worst_rows(rows, limit=3):
-    filtered = [row for row in rows if row["spend"] > 0]
+    # ignore near-zero spend ad sets; a 0.16 spend with no result isn't a real loser
+    filtered = [row for row in rows if row["spend"] >= 50 and row["objective"] != "awareness"]
     return sorted(filtered, key=lambda item: item["score"])[:limit]
 
 
@@ -408,6 +437,7 @@ def build_segment_summary(rows):
         "message": {"name": "Message Ads", "result_label": "Messages", "cost_label": "Cost/Message", "spend": 0.0, "results": 0.0},
         "sales": {"name": "Sales Ads", "result_label": "Sales", "cost_label": "Cost/Sale", "spend": 0.0, "results": 0.0},
         "follow": {"name": "Follow Ads", "result_label": "Follows", "cost_label": "Cost/Follow", "spend": 0.0, "results": 0.0},
+        "awareness": {"name": "Awareness Ads", "result_label": "Reach", "cost_label": "Cost/1K Reach", "spend": 0.0, "results": 0.0},
         "other": {"name": "Other Ads", "result_label": "Results", "cost_label": "Cost/Result", "spend": 0.0, "results": 0.0},
     }
 
@@ -419,7 +449,7 @@ def build_segment_summary(rows):
         segments[objective]["spend"] += row.get("spend", 0.0)
         segments[objective]["results"] += row.get("result_count", 0.0)
 
-    ordered_keys = ["install", "message", "sales", "follow", "other"]
+    ordered_keys = ["install", "message", "sales", "follow", "awareness", "other"]
     return [segments[key] for key in ordered_keys if segments[key]["spend"] > 0]
 
 
@@ -497,6 +527,8 @@ def build_report_message(last_24h_rows, age_gender_rows, country_rows, time_rows
         results = segment["results"]
         spend = segment["spend"]
         cpr = spend / results if results > 0 else 0.0
+        if segment["result_label"] == "Reach":
+            cpr *= 1000
         cost_value = format_money(cpr) if results > 0 else "N/A"
         lines.append(
             f"- {segment['name']}: Spend {format_money(spend)} | {segment['result_label']} {format_num(results)} | {segment['cost_label']} {cost_value}"
@@ -580,7 +612,7 @@ def main():
         config["meta_access_token"],
         config["meta_ad_account_id"],
         level="adset",
-        fields="campaign_name,adset_name,spend,impressions,clicks,ctr,cpc,actions,cost_per_action_type",
+        fields="campaign_name,adset_name,optimization_goal,spend,impressions,reach,clicks,ctr,cpc,actions,cost_per_action_type",
         time_range={"since": since_date, "until": until_date},
     )
 
